@@ -16,7 +16,7 @@ public class Main {
   public static void main(String[] args) throws Exception {
 	
 	// You can hard-code the path as shown here, or you can use args to send the paths to files.
-	YahooLogLineReader reader = new YahooLogLineReader("PATH_TO_UNZIPPED_FOLDER/data/log.txt");
+	YahooLogLineReader reader = new YahooLogLineReader(args[0]);
 
     FromFileLogLineGenerator<User, Article, Boolean> generator = 	
     		new FromFileLogLineGenerator<User, Article, Boolean>(reader);
