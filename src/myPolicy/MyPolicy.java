@@ -14,12 +14,14 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 	public static final int ARTICLE_COUNT = 271;
 	public static final int ARTICLE_FEAT_DIMEN = 6;
 	public static final int USER_FEAT_DIMEN = 6;
+	private static final double THRESHOLD = 0.00000000001;
 	private DoubleMatrix ones;
 	private DoubleMatrix identity;
 	private DoubleMatrix[] matrixA;
 	private DoubleMatrix[] vectorB;
 	private DoubleMatrix userFeature;
 	private Random random;
+	private int chosenID;
 	
   // Here you can load the article features.
   public MyPolicy(String articleFilePath) {
@@ -49,11 +51,11 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   		DoubleMatrix intermediate = userFeature.transpose().mmul(inverse);
   		double confidenceWidth = ALPHA * Math.sqrt(intermediate.dot(userFeature));
   		double p = theta.transpose().dot(userFeature) + confidenceWidth;
-  		if (p > max) {
+  		if (p - max > THRESHOLD) {
   			max = p;
   			maxIndex = possibleActions.indexOf(article);
+  			chosenID = article.getID();
   		}
-  		matrixA[id] = matrixA[id].add(userFeature.mmul(userFeature.transpose()));
   	}
     return possibleActions.get(maxIndex);
   }
@@ -63,12 +65,10 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	for (int i = 0; i < USER_FEAT_DIMEN; i++) {
   		userFeature.put(i, 0, c.getFeatures()[i]);
   	}
-  	for (int i = 0; i < ARTICLE_COUNT; i++) {
-  		if (vectorB[i] != null) {
-  			if (reward) {
-  				vectorB[i] = vectorB[i].add(userFeature);
-  			}
-  		}
+  	int id = chosenID % ARTICLE_COUNT;
+  	matrixA[id] = matrixA[id].add(userFeature.mmul(userFeature.transpose()));
+  	if (reward) {
+  		vectorB[id] = vectorB[id].add(userFeature);
   	}
   }
 }
