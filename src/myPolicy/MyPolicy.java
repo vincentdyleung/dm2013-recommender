@@ -9,11 +9,17 @@ import org.jblas.DoubleMatrix;
 import org.jblas.Solve;
 
 public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> {
+	
+	// confidence is 1 - DELTA, DELTA smaller, larger interval
 	public static final double DELTA = 0.01;
 	public static final double ALPHA = 1 + Math.sqrt(Math.log(2 / DELTA) / 2);
+	
+	// specified in the project description
 	public static final int ARTICLE_COUNT = 271;
 	public static final int ARTICLE_FEAT_DIMEN = 6;
 	public static final int USER_FEAT_DIMEN = 6;
+	
+	// threshold to compare double values
 	private static final double THRESHOLD = 0.00000000001;
 	private DoubleMatrix ones;
 	private DoubleMatrix identity;
@@ -35,22 +41,37 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 
   @Override
   public Article getActionToPerform(User visitor, List<Article> possibleActions) {
+  	// convert userFeature into DoubleMatrix
   	for (int i = 0; i < USER_FEAT_DIMEN; i++) {
   		userFeature.put(i, 0, visitor.getFeatures()[i]);
   	}
   	double max = Double.NEGATIVE_INFINITY;
   	int maxIndex = random.nextInt(possibleActions.size());
+  	
+  	// loop through availabe articles
   	for (Article article : possibleActions) {
+  		// mod because article ID is not in the range of [0..270]
   		int id = article.getID() % ARTICLE_COUNT;
+  		
+  		// check if article is new
   		if (matrixA[id] == null) {
+  			// initialize if article is new
   			matrixA[id] = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
   			vectorB[id] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN);
   		}
+  		
+  		// calculate the inverse by solving AX=I
   		DoubleMatrix inverse = Solve.solve(matrixA[id], identity);
+  		
+  		// calculate theta
   		DoubleMatrix theta = inverse.mmul(vectorB[id]);
+  		
+  		// break calculation of p into three steps
   		DoubleMatrix intermediate = userFeature.transpose().mmul(inverse);
   		double confidenceWidth = ALPHA * Math.sqrt(intermediate.dot(userFeature));
   		double p = theta.transpose().dot(userFeature) + confidenceWidth;
+  		
+  		// pick this article if p value is greater than max
   		if (p - max > THRESHOLD) {
   			max = p;
   			maxIndex = possibleActions.indexOf(article);
@@ -62,11 +83,17 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 
   @Override
   public void updatePolicy(User c, Article a, Boolean reward) {
+  	// convert userFeature into DoubleMatrix
   	for (int i = 0; i < USER_FEAT_DIMEN; i++) {
   		userFeature.put(i, 0, c.getFeatures()[i]);
   	}
+  	
   	int id = chosenID % ARTICLE_COUNT;
+  	
+  	//update the matrix
   	matrixA[id] = matrixA[id].add(userFeature.mmul(userFeature.transpose()));
+  	
+  	//update the vector if clicked through
   	if (reward) {
   		vectorB[id] = vectorB[id].add(userFeature);
   	}
