@@ -21,7 +21,7 @@ public class Main {
     FromFileLogLineGenerator<User, Article, Boolean> generator = 	
     		new FromFileLogLineGenerator<User, Article, Boolean>(reader);
 
-    ContextualBanditPolicy<User, Article, Boolean> policy = new MyPolicy("PATH_TO_UNZIPPED_FOLDER/data/articles.txt");
+    ContextualBanditPolicy<User, Article, Boolean> policy = new MyPolicy(args[1]);
 
     // Output log every 100 lines to standard output.
     EvaluationPolicy<User, Article, Boolean> evalPolicy = 

@@ -27,7 +27,7 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 	private DoubleMatrix[] vectorB;
 	private DoubleMatrix userFeature;
 	private Random random;
-	private int chosenID;
+	//private int chosenID;
 	
   // Here you can load the article features.
   public MyPolicy(String articleFilePath) {
@@ -37,6 +37,15 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	identity = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
   	userFeature = new DoubleMatrix(USER_FEAT_DIMEN);
   	random = new Random();
+  	
+  	
+  	for(int i =0 ; i < ARTICLE_COUNT; i++)
+  	{
+		// initialize if article is new
+		matrixA[i] = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
+		vectorB[i] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN);
+  	}
+  	
   }
 
   @Override
@@ -52,14 +61,14 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	for (Article article : possibleActions) {
   		// mod because article ID is not in the range of [0..270]
   		int id = article.getID() % ARTICLE_COUNT;
-  		
-  		// check if article is new
-  		if (matrixA[id] == null) {
-  			// initialize if article is new
-  			matrixA[id] = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
-  			vectorB[id] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN);
-  		}
-  		
+  	
+//  		//  check if article is new
+//  		if (matrixA[id] == null) {
+//  			// initialize if article is new
+//  			matrixA[id] = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
+//  			vectorB[id] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN);
+//  		}
+	
   		// calculate the inverse by solving AX=I
   		DoubleMatrix inverse = Solve.solve(matrixA[id], identity);
   		
@@ -75,7 +84,7 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   		if (p - max > THRESHOLD) {
   			max = p;
   			maxIndex = possibleActions.indexOf(article);
-  			chosenID = article.getID();
+  			//chosenID = article.getID();
   		}
   	}
     return possibleActions.get(maxIndex);
@@ -88,7 +97,7 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   		userFeature.put(i, 0, c.getFeatures()[i]);
   	}
   	
-  	int id = chosenID % ARTICLE_COUNT;
+  	int id = a.getID() % ARTICLE_COUNT;
   	
   	//update the matrix
   	matrixA[id] = matrixA[id].add(userFeature.mmul(userFeature.transpose()));
@@ -99,3 +108,4 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	}
   }
 }
+
