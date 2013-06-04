@@ -3,16 +3,10 @@ package myPolicy;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Hashtable;
-import java.util.List;
 import java.util.Scanner;
 
-import org.ethz.las.bandit.logs.*;
-import org.ethz.las.bandit.logs.yahoo.Article;
 import org.ethz.las.bandit.logs.yahoo.ArticleFeatures;
-import org.ethz.las.bandit.logs.yahoo.User;
-import org.ethz.las.bandit.logs.yahoo.YahooLogLine;
 import org.ethz.las.bandit.utils.ArrayHelper;
 
 public class ArticleReader {
@@ -26,7 +20,7 @@ public class ArticleReader {
 	
 	public Hashtable<Integer, ArticleFeatures> read() throws IOException
 	{
-		Hashtable<Integer, ArticleFeatures> table = new Hashtable<Integer, ArticleFeatures>(271);
+		Hashtable<Integer, ArticleFeatures> table = new Hashtable<Integer, ArticleFeatures>(MyPolicy.ARTICLE_COUNT);
 		
 		while (hasNext()) {
 			ArticleFeatures features= readLine();

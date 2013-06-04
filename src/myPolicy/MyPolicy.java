@@ -1,8 +1,9 @@
 package myPolicy;
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.util.*;
+import java.util.Hashtable;
+import java.util.List;
+import java.util.Random;
 
 import org.ethz.las.bandit.logs.yahoo.Article;
 import org.ethz.las.bandit.logs.yahoo.ArticleFeatures;
@@ -67,12 +68,12 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	
   	for(int i =0 ; i < ARTICLE_COUNT; i++)
   	{
-		// initialize if article is new
-		matrixAt[i] = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
-		vectorbt[i] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN);
-		
-		//For Hybrid Model
-		matrixB[i] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN, K_CONST);
+			// initialize if article is new
+			matrixAt[i] = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
+			vectorbt[i] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN);
+			
+			//For Hybrid Model
+			matrixB[i] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN, K_CONST);
   	}
   	
   	
@@ -94,26 +95,26 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	double max = Double.NEGATIVE_INFINITY;
   	int maxIndex = random.nextInt(possibleActions.size());
 
-	//calculate beta
-	vectorBeta = matrixA0inversed;
-	vectorBeta = vectorBeta.mmul(vectorb0);
+		//calculate beta
+		vectorBeta = matrixA0inversed;
+		vectorBeta = vectorBeta.mmul(vectorb0);
   	
   	// loop through availabe articles
   	for (Article article : possibleActions) {
   		// mod because article ID is not in the range of [0..270]
   		int id = article.getID() % ARTICLE_COUNT;
 
-  		//get articleFeature;
-  		ArticleFeatures aF = articleFeatureTable.get(id);
-		if (aF != null) {
+  		//get articleFeature, using real ID;
+  		ArticleFeatures aF = articleFeatureTable.get(article.getID());
+			if (aF != null) {
 	  		for (int i = 0; i < ARTICLE_FEAT_DIMEN; i++) {
-				double[] aFArr = aF.getFeatures();
-				articleFeature.put(i, aFArr[i]);
+					double[] aFArr = aF.getFeatures();
+					articleFeature.put(i, aFArr[i]);
+				}
 			}
-		}
-		else {
-			articleFeature = DoubleMatrix.ones(ARTICLE_FEAT_DIMEN);
-		}
+			else {
+				articleFeature = DoubleMatrix.ones(ARTICLE_FEAT_DIMEN);
+			}
   		// calculate the inverse by solving AX=I
   		matrixAtinversed = inversed(matrixAt[id]);
   		
@@ -172,24 +173,24 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	int id = a.getID() % ARTICLE_COUNT;
   	
   	//////update shared part1////
-  	matrixA0 = matrixA0.addi(matrixB[id].transpose().dup().mmul(matrixAtinversed).mmul(matrixB[id]));
-  	vectorb0 = vectorb0.addi(matrixB[id].transpose().dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
+  	matrixA0.addi(matrixB[id].transpose().dup().mmul(matrixAtinversed).mmul(matrixB[id]));
+  	vectorb0.addi(matrixB[id].transpose().dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
   	
   	
   	//////update separate part////
-  	matrixAt[id] = matrixAt[id].addi(userFeature.dup().mmul(userFeature.transpose()));
-  	matrixB[id] = matrixB[id].addi(userFeature.dup().mmul(userFeature.transpose()));
+  	matrixAt[id].addi(userFeature.dup().mmul(userFeature.transpose()));
+  	matrixB[id].addi(userFeature.dup().mmul(userFeature.transpose()));
   	if (reward) {
-  		vectorbt[id] = vectorbt[id].add(userFeature);
+  		vectorbt[id].addi(userFeature);
   	}
   	
   	//////update shared part2////
-  	matrixA0 = matrixA0.addi(articleFeature.dup().mmul(articleFeature.transpose()))
+  	matrixA0.addi(articleFeature.dup().mmul(articleFeature.transpose()))
   						.subi(matrixB[id].transpose().dup().mmul(matrixAtinversed).mmul(matrixB[id]));
-  	vectorb0 = vectorb0.subi(matrixB[id].transpose().dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
+  	vectorb0.subi(matrixB[id].transpose().dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
   	if(reward)
   	{
-  		vectorb0 = vectorb0.addi(articleFeature);
+  		vectorb0.addi(articleFeature);
   	}
   	
   }
