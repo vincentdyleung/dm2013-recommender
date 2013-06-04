@@ -1,8 +1,11 @@
 package myPolicy;
 
+import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.util.*;
 
 import org.ethz.las.bandit.logs.yahoo.Article;
+import org.ethz.las.bandit.logs.yahoo.ArticleFeatures;
 import org.ethz.las.bandit.logs.yahoo.User;
 import org.ethz.las.bandit.policies.ContextualBanditPolicy;
 import org.jblas.DoubleMatrix;
@@ -27,6 +30,7 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 	private DoubleMatrix[] matrixAt;
 	private DoubleMatrix[] vectorbt;
 	private DoubleMatrix userFeature;
+	private DoubleMatrix articleFeature;
 	private Random random;
 	//private int chosenID;
 	
@@ -41,8 +45,10 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 	private DoubleMatrix vectorBeta;
 	//private DoubleMatrix vectorTheta;
 	
+	private Hashtable<Integer, ArticleFeatures> articleFeatureTable;
+	
   // Here you can load the article features.
-  public MyPolicy(String articleFilePath) {
+  public MyPolicy(String articleFilePath) throws IOException {
   	matrixAt = new DoubleMatrix[ARTICLE_COUNT];
   	vectorbt = new DoubleMatrix[ARTICLE_COUNT];
   	matrixB = new DoubleMatrix[ARTICLE_COUNT];
@@ -50,6 +56,7 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	ones = DoubleMatrix.ones(ARTICLE_FEAT_DIMEN);
   	identity = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
   	userFeature = new DoubleMatrix(USER_FEAT_DIMEN);
+  	articleFeature = new DoubleMatrix(ARTICLE_FEAT_DIMEN);
   	random = new Random();
   	
   	//For Hybrid Model
@@ -67,6 +74,11 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 		//For Hybrid Model
 		matrixB[i] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN, K_CONST);
   	}
+  	
+  	
+  	ArticleReader aReader = new ArticleReader(articleFilePath);
+  	//read in article features
+  	articleFeatureTable = aReader.read();
   	
   }
 
@@ -91,6 +103,17 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   		// mod because article ID is not in the range of [0..270]
   		int id = article.getID() % ARTICLE_COUNT;
 
+  		//get articleFeature;
+  		ArticleFeatures aF = articleFeatureTable.get(id);
+		if (aF != null) {
+	  		for (int i = 0; i < ARTICLE_FEAT_DIMEN; i++) {
+				double[] aFArr = aF.getFeatures();
+				articleFeature.put(i, aFArr[i]);
+			}
+		}
+		else {
+			articleFeature = DoubleMatrix.ones(ARTICLE_FEAT_DIMEN);
+		}
   		// calculate the inverse by solving AX=I
   		matrixAtinversed = inversed(matrixAt[id]);
   		
@@ -101,18 +124,20 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   		
   		//s_{t,a}
   		DoubleMatrix userFeatureTranspose = userFeature.transpose();
+  		DoubleMatrix articleFeatureTranspose = articleFeature.transpose();
+  		
   		DoubleMatrix common24 = matrixA0inversed.dup().mmul(matrixB[id].transpose())
 														.mmul(matrixAtinversed).mmul(userFeature);
   		DoubleMatrix common34 = userFeatureTranspose.dup().mmul(matrixAtinversed);
-  		double s1 = userFeatureTranspose.dot(matrixA0inversed.mmul(userFeature));
-  		double s2 = userFeatureTranspose.dot(common24);
+  		double s1 = articleFeatureTranspose.dot(matrixA0inversed.mmul(userFeature));
+  		double s2 = articleFeatureTranspose.dot(common24);
   		double s3 = common34.dot(userFeature);
   		double s4 = common34.dot(matrixB[id].mmul(common24));
   		
   		double s = s1-2*s2+s3+s4;
   		
   		//calculate P
-  		double p = userFeatureTranspose.dot(vectorBeta)
+  		double p = articleFeatureTranspose.dot(vectorBeta)
   					+ userFeatureTranspose.dot(vectorTheta)
   					+ ALPHA*Math.sqrt(s);
   		
@@ -159,14 +184,15 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	}
   	
   	//////update shared part2////
-  	matrixA0 = matrixA0.addi(userFeature.dup().mmul(userFeature.transpose()))
+  	matrixA0 = matrixA0.addi(articleFeature.dup().mmul(articleFeature.transpose()))
   						.subi(matrixB[id].transpose().dup().mmul(matrixAtinversed).mmul(matrixB[id]));
   	vectorb0 = vectorb0.subi(matrixB[id].transpose().dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
   	if(reward)
   	{
-  		vectorb0 = vectorb0.addi(userFeature);
+  		vectorb0 = vectorb0.addi(articleFeature);
   	}
   	
   }
+
 }
 
