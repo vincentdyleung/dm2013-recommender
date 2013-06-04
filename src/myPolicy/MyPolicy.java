@@ -18,67 +18,109 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 	public static final int ARTICLE_COUNT = 271;
 	public static final int ARTICLE_FEAT_DIMEN = 6;
 	public static final int USER_FEAT_DIMEN = 6;
+	public static final int K_CONST = 6;//k
 	
 	// threshold to compare double values
 	private static final double THRESHOLD = 0.00000000001;
 	private DoubleMatrix ones;
 	private DoubleMatrix identity;
-	private DoubleMatrix[] matrixA;
-	private DoubleMatrix[] vectorB;
+	private DoubleMatrix[] matrixAt;
+	private DoubleMatrix[] vectorbt;
 	private DoubleMatrix userFeature;
 	private Random random;
 	//private int chosenID;
 	
+	
+	//For Hybrid Model
+	private DoubleMatrix matrixA0;
+	private DoubleMatrix vectorb0;
+	private DoubleMatrix[] matrixB;
+	private DoubleMatrix matrixA0inversed;
+	private DoubleMatrix matrixAtinversed;
+	
+	private DoubleMatrix vectorBeta;
+	//private DoubleMatrix vectorTheta;
+	
   // Here you can load the article features.
   public MyPolicy(String articleFilePath) {
-  	matrixA = new DoubleMatrix[ARTICLE_COUNT];
-  	vectorB = new DoubleMatrix[ARTICLE_COUNT];
+  	matrixAt = new DoubleMatrix[ARTICLE_COUNT];
+  	vectorbt = new DoubleMatrix[ARTICLE_COUNT];
+  	matrixB = new DoubleMatrix[ARTICLE_COUNT];
+  	
   	ones = DoubleMatrix.ones(ARTICLE_FEAT_DIMEN);
   	identity = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
   	userFeature = new DoubleMatrix(USER_FEAT_DIMEN);
   	random = new Random();
   	
+  	//For Hybrid Model
+  	matrixA0 = DoubleMatrix.diag(ones, K_CONST, K_CONST);;
+  	vectorb0 = DoubleMatrix.zeros(K_CONST);
+  	matrixA0inversed = inversed(matrixA0);
+  	
   	
   	for(int i =0 ; i < ARTICLE_COUNT; i++)
   	{
 		// initialize if article is new
-		matrixA[i] = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
-		vectorB[i] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN);
+		matrixAt[i] = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
+		vectorbt[i] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN);
+		
+		//For Hybrid Model
+		matrixB[i] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN, K_CONST);
   	}
   	
   }
 
   @Override
   public Article getActionToPerform(User visitor, List<Article> possibleActions) {
+	 
+
+	 
   	// convert userFeature into DoubleMatrix
   	for (int i = 0; i < USER_FEAT_DIMEN; i++) {
   		userFeature.put(i, 0, visitor.getFeatures()[i]);
   	}
   	double max = Double.NEGATIVE_INFINITY;
   	int maxIndex = random.nextInt(possibleActions.size());
+
+	//calculate beta
+	vectorBeta = matrixA0inversed;
+	vectorBeta = vectorBeta.mmul(vectorb0);
   	
   	// loop through availabe articles
   	for (Article article : possibleActions) {
   		// mod because article ID is not in the range of [0..270]
   		int id = article.getID() % ARTICLE_COUNT;
-  	
-//  		//  check if article is new
-//  		if (matrixA[id] == null) {
-//  			// initialize if article is new
-//  			matrixA[id] = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
-//  			vectorB[id] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN);
-//  		}
-	
+
   		// calculate the inverse by solving AX=I
-  		DoubleMatrix inverse = Solve.solve(matrixA[id], identity);
+  		matrixAtinversed = inversed(matrixAt[id]);
   		
   		// calculate theta
-  		DoubleMatrix theta = inverse.mmul(vectorB[id]);
+  		DoubleMatrix tempforTheta=matrixB[id].dup().mmul(vectorBeta);
+  		DoubleMatrix vectorTheta = matrixAtinversed.dup().mmul(vectorbt[id].sub(
+  													tempforTheta));
+  		
+  		//s_{t,a}
+  		DoubleMatrix userFeatureTranspose = userFeature.transpose();
+  		DoubleMatrix common24 = matrixA0inversed.dup().mmul(matrixB[id].transpose())
+														.mmul(matrixAtinversed).mmul(userFeature);
+  		DoubleMatrix common34 = userFeatureTranspose.dup().mmul(matrixAtinversed);
+  		double s1 = userFeatureTranspose.dot(matrixA0inversed.mmul(userFeature));
+  		double s2 = userFeatureTranspose.dot(common24);
+  		double s3 = common34.dot(userFeature);
+  		double s4 = common34.dot(matrixB[id].mmul(common24));
+  		
+  		double s = s1-2*s2+s3+s4;
+  		
+  		//calculate P
+  		double p = userFeatureTranspose.dot(vectorBeta)
+  					+ userFeatureTranspose.dot(vectorTheta)
+  					+ ALPHA*Math.sqrt(s);
   		
   		// break calculation of p into three steps
-  		DoubleMatrix intermediate = userFeature.transpose().mmul(inverse);
-  		double confidenceWidth = ALPHA * Math.sqrt(intermediate.dot(userFeature));
-  		double p = theta.transpose().dot(userFeature) + confidenceWidth;
+//  		DoubleMatrix intermediate = userFeature.transpose();intermediate.mmul(matrixAtinversed);
+//  		double confidenceWidth = ALPHA * Math.sqrt(intermediate.dot(userFeature));
+//  		double p = vectorTheta.transpose().dot(userFeature) + confidenceWidth;
+  		
   		
   		// pick this article if p value is greater than max
   		if (p - max > THRESHOLD) {
@@ -90,6 +132,11 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
     return possibleActions.get(maxIndex);
   }
 
+  private DoubleMatrix inversed(DoubleMatrix matrix)
+  {
+	  return Solve.solve(matrix, identity);
+  }
+  
   @Override
   public void updatePolicy(User c, Article a, Boolean reward) {
   	// convert userFeature into DoubleMatrix
@@ -99,13 +146,27 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	
   	int id = a.getID() % ARTICLE_COUNT;
   	
-  	//update the matrix
-  	matrixA[id] = matrixA[id].add(userFeature.mmul(userFeature.transpose()));
+  	//////update shared part1////
+  	matrixA0 = matrixA0.addi(matrixB[id].transpose().dup().mmul(matrixAtinversed).mmul(matrixB[id]));
+  	vectorb0 = vectorb0.addi(matrixB[id].transpose().dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
   	
-  	//update the vector if clicked through
+  	
+  	//////update separate part////
+  	matrixAt[id] = matrixAt[id].addi(userFeature.dup().mmul(userFeature.transpose()));
+  	matrixB[id] = matrixB[id].addi(userFeature.dup().mmul(userFeature.transpose()));
   	if (reward) {
-  		vectorB[id] = vectorB[id].add(userFeature);
+  		vectorbt[id] = vectorbt[id].add(userFeature);
   	}
+  	
+  	//////update shared part2////
+  	matrixA0 = matrixA0.addi(userFeature.dup().mmul(userFeature.transpose()))
+  						.subi(matrixB[id].transpose().dup().mmul(matrixAtinversed).mmul(matrixB[id]));
+  	vectorb0 = vectorb0.subi(matrixB[id].transpose().dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
+  	if(reward)
+  	{
+  		vectorb0 = vectorb0.addi(userFeature);
+  	}
+  	
   }
 }
 
