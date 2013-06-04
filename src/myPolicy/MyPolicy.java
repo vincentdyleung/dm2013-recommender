@@ -21,11 +21,14 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 	
 	// threshold to compare double values
 	private static final double THRESHOLD = 0.00000000001;
+	// max article age to contribute to feedback (milliseconds)
+	private static final long AGE_THRESHOLD = 10800000;
 	private DoubleMatrix ones;
 	private DoubleMatrix identity;
 	private DoubleMatrix[] matrixA;
 	private DoubleMatrix[] vectorB;
 	private DoubleMatrix userFeature;
+	private long[] birthTimes;
 	private Random random;
 	private int chosenID;
 	
@@ -37,6 +40,7 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	identity = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
   	userFeature = new DoubleMatrix(USER_FEAT_DIMEN);
   	random = new Random();
+  	birthTimes = new long[ARTICLE_COUNT];
   }
 
   @Override
@@ -58,6 +62,7 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   			// initialize if article is new
   			matrixA[id] = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
   			vectorB[id] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN);
+  			birthTimes[id] = visitor.getTimestamp();
   		}
   		
   		// calculate the inverse by solving AX=I
@@ -90,12 +95,16 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	
   	int id = chosenID % ARTICLE_COUNT;
   	
-  	//update the matrix
-  	matrixA[id] = matrixA[id].add(userFeature.mmul(userFeature.transpose()));
-  	
-  	//update the vector if clicked through
-  	if (reward) {
-  		vectorB[id] = vectorB[id].add(userFeature);
+  	// check article age
+  	if (c.getTimestamp() - birthTimes[id] <= AGE_THRESHOLD) {
+  		//update the matrix
+    	matrixA[id] = matrixA[id].add(userFeature.mmul(userFeature.transpose()));
+    	
+    	//update the vector if clicked through
+    	if (reward) {
+    		vectorB[id] = vectorB[id].add(userFeature);
+    	}
   	}
+  	
   }
 }
