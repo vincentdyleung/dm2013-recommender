@@ -18,6 +18,9 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 	public static final double DELTA = 0.01;
 	public static final double ALPHA = 1 + Math.sqrt(Math.log(2 / DELTA) / 2);
 	
+	// update policy with this interval
+	public static final int UPDATE_INTERVAL = 1000;
+	
 	// specified in the project description
 	public static final int ARTICLE_COUNT = 271;
 	public static final int ARTICLE_FEAT_DIMEN = 6;
@@ -36,6 +39,7 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 	private DoubleMatrix articleFeature;
 	private long[] birthTimes;
 	private Random random;
+	private int logLinesToUpdate = UPDATE_INTERVAL;
 	//private int chosenID;
 	
 	
@@ -43,8 +47,6 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 	private DoubleMatrix matrixA0;
 	private DoubleMatrix vectorb0;
 	private DoubleMatrix[] matrixB;
-	private DoubleMatrix matrixA0inversed;
-	private DoubleMatrix matrixAtinversed;
 	
 	private DoubleMatrix vectorBeta;
 	//private DoubleMatrix vectorTheta;
@@ -64,9 +66,8 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	random = new Random();
   	
   	//For Hybrid Model
-  	matrixA0 = DoubleMatrix.diag(ones, K_CONST, K_CONST);;
+  	matrixA0 = DoubleMatrix.diag(ones, K_CONST, K_CONST);
   	vectorb0 = DoubleMatrix.zeros(K_CONST);
-  	matrixA0inversed = inversed(matrixA0);
   	
   	ArticleReader aReader = new ArticleReader(articleFilePath);
   	//read in article features
@@ -77,7 +78,7 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 
   @Override
   public Article getActionToPerform(User visitor, List<Article> possibleActions) {
-	 
+  	
   	// convert userFeature into DoubleMatrix
   	for (int i = 0; i < USER_FEAT_DIMEN; i++) {
   		userFeature.put(i, 0, visitor.getFeatures()[i]);
@@ -86,6 +87,7 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	int maxIndex = random.nextInt(possibleActions.size());
 
 		//calculate beta
+  	DoubleMatrix matrixA0inversed = inversed(matrixA0);
 		vectorBeta = matrixA0inversed.dup().mmul(vectorb0);
   	
   	// loop through availabe articles
@@ -111,7 +113,8 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 			}
   		
   		// calculate the inverse by solving AX=I
-  		matrixAtinversed = inversed(matrixAt[id]);
+  		DoubleMatrix matrixAtinversed = inversed(matrixAt[id]);
+  		
   		
   		// calculate theta
   		DoubleMatrix tempforTheta=matrixB[id].dup().mmul(vectorBeta);
@@ -137,12 +140,6 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   		double p = articleFeatureTranspose.dot(vectorBeta)
   					+ userFeatureTranspose.dot(vectorTheta)
   					+ ALPHA*Math.sqrt(s);
-  		
-  		// break calculation of p into three steps
-//  		DoubleMatrix intermediate = userFeature.transpose();intermediate.mmul(matrixAtinversed);
-//  		double confidenceWidth = ALPHA * Math.sqrt(intermediate.dot(userFeature));
-//  		double p = vectorTheta.transpose().dot(userFeature) + confidenceWidth;
-  		
   		
   		// pick this article if p value is greater than max
   		if (p - max > THRESHOLD) {
@@ -170,30 +167,37 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   		
   	// check article age
   	if (c.getTimestamp() - birthTimes[id] <= AGE_THRESHOLD) {
-  		DoubleMatrix chosenArticleFeature = new DoubleMatrix(articleFeatureTable.get(a.getID()).getFeatures());
-    	DoubleMatrix matrixBTranspose = matrixB[id].transpose();
+  		logLinesToUpdate--;
+  		if (logLinesToUpdate == 0) {
+  			DoubleMatrix chosenArticleFeature = new DoubleMatrix(articleFeatureTable.get(a.getID()).getFeatures());
+      	DoubleMatrix matrixBTranspose = matrixB[id].transpose();
+      	DoubleMatrix matrixAtinversed = inversed(matrixAt[id]);
 
-    	//////update shared part1////
-    	matrixA0 = matrixA0.addi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(matrixB[id]));
-    	vectorb0 = vectorb0.addi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
-    	
-    	//////update separate part////
-    	matrixAt[id] = matrixAt[id].addi(chosenArticleFeature.dup().mmul(chosenArticleFeature.transpose()));
-    	matrixB[id] = matrixB[id].addi(chosenArticleFeature.dup().mmul(userFeature.transpose()));
-    	if (reward) {
-    		vectorbt[id] = vectorbt[id].addi(chosenArticleFeature);
-    	}
-    	
-    	//////update shared part2////
-    	matrixBTranspose = matrixB[id].transpose();
-    	matrixA0 = matrixA0.addi(userFeature.dup().mmul(userFeature.transpose()))
-    						.subi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(matrixB[id]));
-    	vectorb0 = vectorb0.subi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
-    	if(reward)
-    	{
-    		vectorb0 = vectorb0.addi(userFeature);
-    	}
-  		
+      	//////update shared part1////
+      	matrixA0 = matrixA0.addi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(matrixB[id]));
+      	vectorb0 = vectorb0.addi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
+      	
+      	//////update separate part////
+      	matrixAt[id] = matrixAt[id].addi(userFeature.dup().mmul(userFeature.transpose()));
+      	matrixB[id] = matrixB[id].addi(userFeature.dup().mmul(chosenArticleFeature.transpose()));
+      	if (reward) {
+      		vectorbt[id] = vectorbt[id].addi(userFeature);
+      	}
+      	
+      	//////update shared part2////
+      	matrixAtinversed = inversed(matrixAt[id]);
+      	matrixBTranspose = matrixB[id].transpose();
+      	matrixA0 = matrixA0.addi(chosenArticleFeature.dup().mmul(chosenArticleFeature.transpose()))
+      						.subi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(matrixB[id]));
+      	vectorb0 = vectorb0.subi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
+      	if(reward)
+      	{
+      		vectorb0 = vectorb0.addi(chosenArticleFeature);
+      	}
+      	
+      	// reset interval
+      	logLinesToUpdate = UPDATE_INTERVAL;
+  		}
   	}
   }
 
