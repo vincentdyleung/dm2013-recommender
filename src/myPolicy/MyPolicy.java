@@ -22,7 +22,7 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 	public static final int ARTICLE_COUNT = 271;
 	public static final int ARTICLE_FEAT_DIMEN = 6;
 	public static final int USER_FEAT_DIMEN = 6;
-	public static final int K_CONST = 6;//k
+	public static final int K_CONST = USER_FEAT_DIMEN;//k
 	
 	// threshold to compare double values
 	private static final double THRESHOLD = 0.00000000001;
@@ -65,18 +65,6 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	vectorb0 = DoubleMatrix.zeros(K_CONST);
   	matrixA0inversed = inversed(matrixA0);
   	
-  	
-  	for(int i =0 ; i < ARTICLE_COUNT; i++)
-  	{
-			// initialize if article is new
-			matrixAt[i] = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
-			vectorbt[i] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN);
-			
-			//For Hybrid Model
-			matrixB[i] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN, K_CONST);
-  	}
-  	
-  	
   	ArticleReader aReader = new ArticleReader(articleFilePath);
   	//read in article features
   	articleFeatureTable = aReader.read();
@@ -86,8 +74,6 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   @Override
   public Article getActionToPerform(User visitor, List<Article> possibleActions) {
 	 
-
-	 
   	// convert userFeature into DoubleMatrix
   	for (int i = 0; i < USER_FEAT_DIMEN; i++) {
   		userFeature.put(i, 0, visitor.getFeatures()[i]);
@@ -96,25 +82,29 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	int maxIndex = random.nextInt(possibleActions.size());
 
 		//calculate beta
-		vectorBeta = matrixA0inversed;
-		vectorBeta = vectorBeta.mmul(vectorb0);
+		vectorBeta = matrixA0inversed.dup().mmul(vectorb0);
   	
   	// loop through availabe articles
   	for (Article article : possibleActions) {
   		// mod because article ID is not in the range of [0..270]
   		int id = article.getID() % ARTICLE_COUNT;
 
+  		if (matrixAt[id] == null) {
+  			// initialize if article is new
+  			matrixAt[id] = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
+  			vectorbt[id] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN);
+  			
+  			//For Hybrid Model
+  			matrixB[id] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN, K_CONST);
+  		}
+  		
   		//get articleFeature, using real ID;
   		ArticleFeatures aF = articleFeatureTable.get(article.getID());
-			if (aF != null) {
-	  		for (int i = 0; i < ARTICLE_FEAT_DIMEN; i++) {
-					double[] aFArr = aF.getFeatures();
-					articleFeature.put(i, aFArr[i]);
-				}
+  		for (int i = 0; i < ARTICLE_FEAT_DIMEN; i++) {
+				double[] aFArr = aF.getFeatures();
+				articleFeature.put(i, aFArr[i]);
 			}
-			else {
-				articleFeature = DoubleMatrix.ones(ARTICLE_FEAT_DIMEN);
-			}
+  		
   		// calculate the inverse by solving AX=I
   		matrixAtinversed = inversed(matrixAt[id]);
   		
@@ -127,13 +117,14 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   		DoubleMatrix userFeatureTranspose = userFeature.transpose();
   		DoubleMatrix articleFeatureTranspose = articleFeature.transpose();
   		
-  		DoubleMatrix common24 = matrixA0inversed.dup().mmul(matrixB[id].transpose())
-														.mmul(matrixAtinversed).mmul(userFeature);
-  		DoubleMatrix common34 = userFeatureTranspose.dup().mmul(matrixAtinversed);
-  		double s1 = articleFeatureTranspose.dot(matrixA0inversed.mmul(userFeature));
-  		double s2 = articleFeatureTranspose.dot(common24);
-  		double s3 = common34.dot(userFeature);
-  		double s4 = common34.dot(matrixB[id].mmul(common24));
+  		DoubleMatrix common24 = matrixA0inversed.dup()
+  													.mmul(matrixB[id].transpose())
+														.mmul(matrixAtinversed);
+  		double s1 = userFeatureTranspose.dup().mmul(matrixA0inversed).dot(userFeature);
+  		double s2 = userFeatureTranspose.dup().mmul(common24).dot(articleFeature);
+  		double s3 = articleFeatureTranspose.dup().mmul(matrixAtinversed).dot(articleFeature);
+  		DoubleMatrix matrix4 = matrixAtinversed.dup().mmul(matrixB[id]).mmul(common24);
+  		double s4 = articleFeatureTranspose.dup().mmul(matrix4).dot(articleFeature);
   		
   		double s = s1-2*s2+s3+s4;
   		
@@ -171,26 +162,29 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	}
   	
   	int id = a.getID() % ARTICLE_COUNT;
-  	
+  	DoubleMatrix chosenArticleFeature = new DoubleMatrix(articleFeatureTable.get(a.getID()).getFeatures());
+  	DoubleMatrix matrixBTranspose = matrixB[id].transpose();
+
   	//////update shared part1////
-  	matrixA0.addi(matrixB[id].transpose().dup().mmul(matrixAtinversed).mmul(matrixB[id]));
-  	vectorb0.addi(matrixB[id].transpose().dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
+  	matrixA0 = matrixA0.addi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(matrixB[id]));
+  	vectorb0 = vectorb0.addi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
   	
   	
   	//////update separate part////
-  	matrixAt[id].addi(userFeature.dup().mmul(userFeature.transpose()));
-  	matrixB[id].addi(userFeature.dup().mmul(userFeature.transpose()));
+  	matrixAt[id] = matrixAt[id].addi(chosenArticleFeature.dup().mmul(chosenArticleFeature.transpose()));
+  	matrixB[id] = matrixB[id].addi(chosenArticleFeature.dup().mmul(userFeature.transpose()));
   	if (reward) {
-  		vectorbt[id].addi(userFeature);
+  		vectorbt[id] = vectorbt[id].addi(chosenArticleFeature);
   	}
   	
   	//////update shared part2////
-  	matrixA0.addi(articleFeature.dup().mmul(articleFeature.transpose()))
-  						.subi(matrixB[id].transpose().dup().mmul(matrixAtinversed).mmul(matrixB[id]));
-  	vectorb0.subi(matrixB[id].transpose().dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
+  	matrixBTranspose = matrixB[id].transpose();
+  	matrixA0 = matrixA0.addi(userFeature.dup().mmul(userFeature.transpose()))
+  						.subi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(matrixB[id]));
+  	vectorb0 = vectorb0.subi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
   	if(reward)
   	{
-  		vectorb0.addi(articleFeature);
+  		vectorb0 = vectorb0.addi(userFeature);
   	}
   	
   }
