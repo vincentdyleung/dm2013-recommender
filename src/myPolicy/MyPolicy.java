@@ -118,7 +118,7 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   		
   		// calculate theta
   		DoubleMatrix tempforTheta=matrixB[id].dup().mmul(vectorBeta);
-  		DoubleMatrix vectorTheta = matrixAtinversed.dup().mmul(vectorbt[id].sub(
+  		DoubleMatrix vectorTheta = matrixAtinversed.dup().mmul(vectorbt[id].dup().sub(
   													tempforTheta));
   		
   		//s_{t,a}
@@ -174,25 +174,25 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
       	DoubleMatrix matrixAtinversed = inversed(matrixAt[id]);
 
       	//////update shared part1////
-      	matrixA0 = matrixA0.addi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(matrixB[id]));
-      	vectorb0 = vectorb0.addi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
+      	matrixA0 = matrixA0.add(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(matrixB[id]));
+      	vectorb0 = vectorb0.add(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
       	
       	//////update separate part////
-      	matrixAt[id] = matrixAt[id].addi(userFeature.dup().mmul(userFeature.transpose()));
-      	matrixB[id] = matrixB[id].addi(userFeature.dup().mmul(chosenArticleFeature.transpose()));
+      	matrixAt[id] = matrixAt[id].add(userFeature.dup().mmul(userFeature.transpose()));
+      	matrixB[id] = matrixB[id].add(userFeature.dup().mmul(chosenArticleFeature.transpose()));
       	if (reward) {
-      		vectorbt[id] = vectorbt[id].addi(userFeature);
+      		vectorbt[id] = vectorbt[id].add(userFeature);
       	}
       	
       	//////update shared part2////
       	matrixAtinversed = inversed(matrixAt[id]);
       	matrixBTranspose = matrixB[id].transpose();
-      	matrixA0 = matrixA0.addi(chosenArticleFeature.dup().mmul(chosenArticleFeature.transpose()))
-      						.subi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(matrixB[id]));
-      	vectorb0 = vectorb0.subi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
+      	matrixA0 = matrixA0.add(chosenArticleFeature.dup().mmul(chosenArticleFeature.transpose()))
+      						.sub(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(matrixB[id]));
+      	vectorb0 = vectorb0.sub(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
       	if(reward)
       	{
-      		vectorb0 = vectorb0.addi(chosenArticleFeature);
+      		vectorb0 = vectorb0.add(chosenArticleFeature);
       	}
       	
       	// reset interval
