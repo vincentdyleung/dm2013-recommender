@@ -26,12 +26,15 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 	
 	// threshold to compare double values
 	private static final double THRESHOLD = 0.00000000001;
+	// max article age to contribute to feedback (milliseconds)
+	private static final long AGE_THRESHOLD = Long.MAX_VALUE;
 	private DoubleMatrix ones;
 	private DoubleMatrix identity;
 	private DoubleMatrix[] matrixAt;
 	private DoubleMatrix[] vectorbt;
 	private DoubleMatrix userFeature;
 	private DoubleMatrix articleFeature;
+	private long[] birthTimes;
 	private Random random;
 	//private int chosenID;
 	
@@ -69,6 +72,7 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	//read in article features
   	articleFeatureTable = aReader.read();
   	
+  	birthTimes = new long[ARTICLE_COUNT];
   }
 
   @Override
@@ -93,6 +97,7 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   			// initialize if article is new
   			matrixAt[id] = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
   			vectorbt[id] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN);
+  			birthTimes[id] = visitor.getTimestamp();
   			
   			//For Hybrid Model
   			matrixB[id] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN, K_CONST);
@@ -120,11 +125,11 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   		DoubleMatrix common24 = matrixA0inversed.dup()
   													.mmul(matrixB[id].transpose())
 														.mmul(matrixAtinversed);
-  		double s1 = userFeatureTranspose.dup().mmul(matrixA0inversed).dot(userFeature);
-  		double s2 = userFeatureTranspose.dup().mmul(common24).dot(articleFeature);
-  		double s3 = articleFeatureTranspose.dup().mmul(matrixAtinversed).dot(articleFeature);
+  		double s1 = articleFeatureTranspose.dup().mmul(matrixA0inversed).dot(articleFeature);
+  		double s2 = articleFeatureTranspose.dup().mmul(common24).dot(userFeature);
+  		double s3 = userFeatureTranspose.dup().mmul(matrixAtinversed).dot(userFeature);
   		DoubleMatrix matrix4 = matrixAtinversed.dup().mmul(matrixB[id]).mmul(common24);
-  		double s4 = articleFeatureTranspose.dup().mmul(matrix4).dot(articleFeature);
+  		double s4 = userFeatureTranspose.dup().mmul(matrix4).dot(userFeature);
   		
   		double s = s1-2*s2+s3+s4;
   		
@@ -162,31 +167,34 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	}
   	
   	int id = a.getID() % ARTICLE_COUNT;
-  	DoubleMatrix chosenArticleFeature = new DoubleMatrix(articleFeatureTable.get(a.getID()).getFeatures());
-  	DoubleMatrix matrixBTranspose = matrixB[id].transpose();
+  		
+  	// check article age
+  	if (c.getTimestamp() - birthTimes[id] <= AGE_THRESHOLD) {
+  		DoubleMatrix chosenArticleFeature = new DoubleMatrix(articleFeatureTable.get(a.getID()).getFeatures());
+    	DoubleMatrix matrixBTranspose = matrixB[id].transpose();
 
-  	//////update shared part1////
-  	matrixA0 = matrixA0.addi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(matrixB[id]));
-  	vectorb0 = vectorb0.addi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
-  	
-  	
-  	//////update separate part////
-  	matrixAt[id] = matrixAt[id].addi(chosenArticleFeature.dup().mmul(chosenArticleFeature.transpose()));
-  	matrixB[id] = matrixB[id].addi(chosenArticleFeature.dup().mmul(userFeature.transpose()));
-  	if (reward) {
-  		vectorbt[id] = vectorbt[id].addi(chosenArticleFeature);
+    	//////update shared part1////
+    	matrixA0 = matrixA0.addi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(matrixB[id]));
+    	vectorb0 = vectorb0.addi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
+    	
+    	//////update separate part////
+    	matrixAt[id] = matrixAt[id].addi(chosenArticleFeature.dup().mmul(chosenArticleFeature.transpose()));
+    	matrixB[id] = matrixB[id].addi(chosenArticleFeature.dup().mmul(userFeature.transpose()));
+    	if (reward) {
+    		vectorbt[id] = vectorbt[id].addi(chosenArticleFeature);
+    	}
+    	
+    	//////update shared part2////
+    	matrixBTranspose = matrixB[id].transpose();
+    	matrixA0 = matrixA0.addi(userFeature.dup().mmul(userFeature.transpose()))
+    						.subi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(matrixB[id]));
+    	vectorb0 = vectorb0.subi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
+    	if(reward)
+    	{
+    		vectorb0 = vectorb0.addi(userFeature);
+    	}
+  		
   	}
-  	
-  	//////update shared part2////
-  	matrixBTranspose = matrixB[id].transpose();
-  	matrixA0 = matrixA0.addi(userFeature.dup().mmul(userFeature.transpose()))
-  						.subi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(matrixB[id]));
-  	vectorb0 = vectorb0.subi(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(vectorbt[id]));
-  	if(reward)
-  	{
-  		vectorb0 = vectorb0.addi(userFeature);
-  	}
-  	
   }
 
 }
