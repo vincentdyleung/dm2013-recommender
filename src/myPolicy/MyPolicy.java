@@ -25,22 +25,22 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 	private static final long AGE_THRESHOLD = Long.MAX_VALUE;
 	private DoubleMatrix ones;
 	private DoubleMatrix identity;
-	private DoubleMatrix[] matrixA;
-	private DoubleMatrix[] vectorB;
+	private Hashtable<Integer, DoubleMatrix> matrixA;
+	private Hashtable<Integer, DoubleMatrix> vectorB;
 	private DoubleMatrix userFeature;
-	private long[] birthTimes;
+	private Hashtable<Integer, Long> birthTimes;
 	private Random random;
-	private int chosenID;
+	private Integer chosenID;
 	
   // Here you can load the article features.
   public MyPolicy(String articleFilePath) {
-  	matrixA = new DoubleMatrix[ARTICLE_COUNT];
-  	vectorB = new DoubleMatrix[ARTICLE_COUNT];
+  	matrixA = new Hashtable<Integer, DoubleMatrix>(ARTICLE_COUNT);
+  	vectorB = new Hashtable<Integer, DoubleMatrix>(ARTICLE_COUNT);
   	ones = DoubleMatrix.ones(ARTICLE_FEAT_DIMEN);
   	identity = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
   	userFeature = new DoubleMatrix(USER_FEAT_DIMEN);
   	random = new Random();
-  	birthTimes = new long[ARTICLE_COUNT];
+  	birthTimes = new Hashtable<Integer, Long>(ARTICLE_COUNT);
   }
 
   @Override
@@ -54,22 +54,21 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	
   	// loop through availabe articles
   	for (Article article : possibleActions) {
-  		// mod because article ID is not in the range of [0..270]
-  		int id = article.getID() % ARTICLE_COUNT;
-  		
+  		Integer articleID = article.getID();
   		// check if article is new
-  		if (matrixA[id] == null) {
+  		if (matrixA.get(articleID) == null) {
   			// initialize if article is new
-  			matrixA[id] = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
-  			vectorB[id] = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN);
-  			birthTimes[id] = visitor.getTimestamp();
+  			matrixA.put(articleID, identity.dup());
+  			DoubleMatrix zeros = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN);
+  			vectorB.put(articleID, zeros);
+  			birthTimes.put(articleID, visitor.getTimestamp());
   		}
   		
   		// calculate the inverse by solving AX=I
-  		DoubleMatrix inverse = Solve.solve(matrixA[id], identity);
+  		DoubleMatrix inverse = Solve.solve(matrixA.get(articleID), identity);
   		
   		// calculate theta
-  		DoubleMatrix theta = inverse.dup().mmul(vectorB[id]);
+  		DoubleMatrix theta = inverse.dup().mmul(vectorB.get(articleID));
   		
   		// break calculation of p into three steps
   		DoubleMatrix intermediate = userFeature.transpose().mmul(inverse);
@@ -83,8 +82,8 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   			chosenID = article.getID();
   		}
   	}
-  	int idMod = chosenID % ARTICLE_COUNT;
-  	matrixA[idMod] = matrixA[idMod].add(userFeature.dup().mmul(userFeature.transpose()));
+  	//update the matrix
+  	matrixA.get(chosenID).add(userFeature.dup().mmul(userFeature.transpose()));
     return possibleActions.get(maxIndex);
   }
 
@@ -95,16 +94,16 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   		userFeature.put(i, 0, c.getFeatures()[i]);
   	}
   	
-  	int id = chosenID % ARTICLE_COUNT;
+  	Integer id = a.getID();
   	
   	// check article age
-  	if (c.getTimestamp() - birthTimes[id] <= AGE_THRESHOLD) {
-  		//update the matrix
+  	if (c.getTimestamp() - birthTimes.get(id) <= AGE_THRESHOLD) {
+  		
     	
     	
     	//update the vector if clicked through
     	if (reward) {
-    		vectorB[id] = vectorB[id].add(userFeature);
+    		vectorB.get(id).add(userFeature);
     	}
   	}
   	
