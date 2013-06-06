@@ -19,20 +19,22 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 	public static final double ALPHA = 1 + Math.sqrt(Math.log(2 / DELTA) / 2);
 	
 	// update policy with this interval
-	public static final int UPDATE_INTERVAL = 1;
+	public static final int UPDATE_INTERVAL = 100000;
 	
 	// specified in the project description
 	public static final int ARTICLE_COUNT = 271;
 	public static final int ARTICLE_FEAT_DIMEN = 6;
 	public static final int USER_FEAT_DIMEN = 6;
-	public static final int K_CONST = USER_FEAT_DIMEN;//k
+	public static final int K_CONST = USER_FEAT_DIMEN * ARTICLE_FEAT_DIMEN;//k
 	
 	// threshold to compare double values
 	private static final double THRESHOLD = 0.00000000001;
 	// max article age to contribute to feedback (milliseconds)
 	private static final long AGE_THRESHOLD = Long.MAX_VALUE;
-	private DoubleMatrix ones;
-	private DoubleMatrix identity;
+	private DoubleMatrix dOnes;
+	private DoubleMatrix kOnes;
+	private DoubleMatrix kIdentity;
+	private DoubleMatrix dIdentity;
 	private Hashtable<Integer, DoubleMatrix> matrixAt;
 	private Hashtable<Integer, DoubleMatrix> vectorbt;
 	private DoubleMatrix userFeature;
@@ -41,6 +43,7 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 	private Random random;
 	private int logLinesToUpdate = UPDATE_INTERVAL;
 	//private int chosenID;
+	private DoubleMatrix chosenZed;
 	
 	
 	//For Hybrid Model
@@ -59,14 +62,17 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	vectorbt = new Hashtable<Integer, DoubleMatrix>(ARTICLE_COUNT);
   	matrixB = new Hashtable<Integer, DoubleMatrix>(ARTICLE_COUNT);
   	
-  	ones = DoubleMatrix.ones(ARTICLE_FEAT_DIMEN);
-  	identity = DoubleMatrix.diag(ones, ARTICLE_FEAT_DIMEN, ARTICLE_FEAT_DIMEN);
+  	dOnes = DoubleMatrix.ones(USER_FEAT_DIMEN);
+  	kOnes = DoubleMatrix.ones(K_CONST);
+  	dIdentity = DoubleMatrix.diag(dOnes, USER_FEAT_DIMEN, USER_FEAT_DIMEN);
+  	kIdentity = DoubleMatrix.diag(kOnes, K_CONST, K_CONST);
   	userFeature = new DoubleMatrix(USER_FEAT_DIMEN);
   	articleFeature = new DoubleMatrix(ARTICLE_FEAT_DIMEN);
   	random = new Random();
   	
   	//For Hybrid Model
-  	matrixA0 = DoubleMatrix.diag(ones, K_CONST, K_CONST);
+  	DoubleMatrix kOnes = DoubleMatrix.ones(K_CONST);
+  	matrixA0 = DoubleMatrix.diag(kOnes, K_CONST, K_CONST);
   	vectorb0 = DoubleMatrix.zeros(K_CONST);
   	
   	ArticleReader aReader = new ArticleReader(articleFilePath);
@@ -87,7 +93,7 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   	int maxIndex = random.nextInt(possibleActions.size());
 
 		//calculate beta
-  	DoubleMatrix matrixA0inversed = inversed(matrixA0);
+  	DoubleMatrix matrixA0inversed = kInverse(matrixA0);
 		vectorBeta = matrixA0inversed.dup().mmul(vectorb0);
   	
 		Integer chosenID = possibleActions.get(random.nextInt(possibleActions.size())).getID();
@@ -98,7 +104,7 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 
   		if (matrixAt.get(id) == null) {
   			// initialize if article is new
-  			matrixAt.put(id, identity.dup());
+  			matrixAt.put(id, dIdentity.dup());
   			DoubleMatrix zeros = DoubleMatrix.zeros(ARTICLE_FEAT_DIMEN);
   			vectorbt.put(id, zeros);
   			birthTimes.put(id, visitor.getTimestamp());
@@ -114,8 +120,14 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 				articleFeature.put(i, aFArr[i]);
 			}
   		
+  		DoubleMatrix zedVector = new DoubleMatrix(K_CONST);
+  		for (int i = 0; i < K_CONST; i++) {
+  			double val = articleFeature.get(i % ARTICLE_FEAT_DIMEN) * userFeature.get(i / USER_FEAT_DIMEN);
+  			zedVector.put(i, val);
+  		}
+  		
   		// calculate the inverse by solving AX=I
-  		DoubleMatrix matrixAtinversed = inversed(matrixAt.get(id));
+  		DoubleMatrix matrixAtinversed = dInverse(matrixAt.get(id));
   		
   		
   		// calculate theta
@@ -125,20 +137,20 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   		
   		//s_{t,a}
   		DoubleMatrix userFeatureTranspose = userFeature.transpose();
-  		DoubleMatrix articleFeatureTranspose = articleFeature.transpose();
+  		DoubleMatrix zedTranspose = zedVector.transpose();
   		
   		DoubleMatrix common24 = matrixA0inversed.dup().mmul(matrixB.get(id).transpose())
 					.mmul(matrixAtinversed).mmul(userFeature);
 			DoubleMatrix common34 = userFeatureTranspose.dup().mmul(matrixAtinversed);
-			double s1 = articleFeatureTranspose.dot(matrixA0inversed.mmul(userFeature));
-			double s2 = articleFeatureTranspose.dot(common24);
+			double s1 = zedTranspose.dot(matrixA0inversed.mmul(zedVector));
+			double s2 = zedTranspose.dot(common24);
 			double s3 = common34.dot(userFeature);
 			double s4 = common34.dot(matrixB.get(id).mmul(common24));
   		
   		double s = s1-2*s2+s3+s4;
   		
   		//calculate P
-  		double p = articleFeatureTranspose.dot(vectorBeta)
+  		double p = zedTranspose.dot(vectorBeta)
   					+ userFeatureTranspose.dot(vectorTheta)
   					+ ALPHA*Math.sqrt(s);
   		
@@ -147,14 +159,14 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   			max = p;
   			maxIndex = possibleActions.indexOf(article);
   			chosenID = article.getID();
+  			chosenZed = zedVector;
   		}
   	}
   	
   	logLinesToUpdate--;
   	if (logLinesToUpdate == 0) {
-	  	DoubleMatrix chosenArticleFeature = new DoubleMatrix(articleFeatureTable.get(chosenID).getFeatures());
 	  	DoubleMatrix matrixBTranspose = matrixB.get(chosenID).transpose();
-	  	DoubleMatrix matrixAtinversed = inversed(matrixAt.get(chosenID));
+	  	DoubleMatrix matrixAtinversed = dInverse(matrixAt.get(chosenID));
 	
 	  	//////update shared part1////
 	  	matrixA0 = matrixA0.add(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(matrixB.get(chosenID)));
@@ -162,13 +174,13 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
 	  	
 	  	//////update separate part////
 	  	matrixAt.get(chosenID).add(userFeature.dup().mmul(userFeature.transpose()));
-	  	matrixB.get(chosenID).add(userFeature.dup().mmul(chosenArticleFeature.transpose()));
+	  	matrixB.get(chosenID).add(userFeature.dup().mmul(chosenZed.transpose()));
 
 	  	
 	  	//////update shared part2////
-	  	matrixAtinversed = inversed(matrixAt.get(chosenID));
+	  	matrixAtinversed = dInverse(matrixAt.get(chosenID));
 	  	matrixBTranspose = matrixB.get(chosenID).transpose();
-	  	matrixA0 = matrixA0.add(chosenArticleFeature.dup().mmul(chosenArticleFeature.transpose()))
+	  	matrixA0 = matrixA0.add(chosenZed.dup().mmul(chosenZed.transpose()))
 	  						.sub(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(matrixB.get(chosenID)));
 	  	vectorb0 = vectorb0.sub(matrixBTranspose.dup().mmul(matrixAtinversed).mmul(vectorbt.get(chosenID)));
 
@@ -180,9 +192,13 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
     return possibleActions.get(maxIndex);
   }
 
-  private DoubleMatrix inversed(DoubleMatrix matrix)
+  private DoubleMatrix kInverse(DoubleMatrix matrix)
   {
-	  return Solve.solve(matrix, identity);
+	  return Solve.solve(matrix, kIdentity);
+  }
+  
+  private DoubleMatrix dInverse(DoubleMatrix matrix) {
+  	return Solve.solve(matrix, dIdentity);
   }
   
   @Override
@@ -196,14 +212,19 @@ public class MyPolicy implements ContextualBanditPolicy<User, Article, Boolean> 
   		
   	// check article age
   	if (c.getTimestamp() - birthTimes.get(id) <= AGE_THRESHOLD) {
-			DoubleMatrix chosenArticleFeature = new DoubleMatrix(articleFeatureTable.get(id).getFeatures());
+			double[] chosenArticleFeature = articleFeatureTable.get(id).getFeatures();
+			DoubleMatrix zed = new DoubleMatrix(K_CONST);
+			for (int i = 0; i < K_CONST; i++) {
+  			double val = chosenArticleFeature[i % ARTICLE_FEAT_DIMEN] * userFeature.get(i / USER_FEAT_DIMEN);
+  			zed.put(i, val);
+  		}
     	if (reward) {
     		vectorbt.get(id).add(userFeature);
     	}
     	
     	if(reward)
     	{
-    		vectorb0 = vectorb0.add(chosenArticleFeature);
+    		vectorb0 = vectorb0.add(zed);
     	}
   	}
   }
